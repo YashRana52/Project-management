@@ -2,146 +2,141 @@ import sendEmail from "../configs/nodemailer.js";
 import prisma from "../configs/prisma.js";
 import { Inngest } from "inngest";
 
-// Create a client to send and receive events
 export const inngest = new Inngest({ id: "project-management" });
 
-//inngest func to save user data to a databse
+/* ---------------------------------------------------------
+                    USER SYNC FUNCTIONS
+----------------------------------------------------------*/
 
 const syncUserCreation = inngest.createFunction(
-  {
-    id: "sync-user-from-clerk",
-  },
+  { id: "sync-user-from-clerk" },
   { event: "clerk/user.created" },
   async ({ event }) => {
-    const { data } = event;
+    const u = event.data;
+
     await prisma.user.create({
       data: {
-        id: data.id,
-        email: data?.email_addresses[0]?.email_address,
-        name: data?.first_name + " " + data?.last_name,
-        image: data?.image_url,
+        id: u.id,
+        email: u.email_addresses[0]?.email_address,
+        name: `${u.first_name} ${u.last_name}`,
+        image: u.image_url,
       },
     });
   }
 );
-
-//inngest func to delete user data to a databse
-const syncUserDeletion = inngest.createFunction(
-  {
-    id: "delete-user-with-clerk",
-  },
-  { event: "clerk/user.deleted" },
-  async ({ event }) => {
-    const { data } = event;
-    await prisma.user.delete({
-      where: {
-        id: data.id,
-      },
-    });
-  }
-);
-
-//inngest func to update user data to a databse
 
 const syncUserUpdation = inngest.createFunction(
-  {
-    id: "update-user-from-clerk",
-  },
+  { id: "update-user-from-clerk" },
   { event: "clerk/user.updated" },
   async ({ event }) => {
-    const { data } = event;
+    const u = event.data;
+
     await prisma.user.update({
-      where: { id: data.id },
+      where: { id: u.id },
       data: {
-        email: data?.email_addresses[0]?.email_addresses,
-        name: data?.first_name + " " + data?.last_name,
-        image: data?.image_url,
+        email: u.email_addresses[0]?.email_address,
+        name: `${u.first_name} ${u.last_name}`,
+        image: u.image_url,
       },
     });
   }
 );
 
-//inngest func to save workspace  to a databse
+const syncUserDeletion = inngest.createFunction(
+  { id: "delete-user-with-clerk" },
+  { event: "clerk/user.deleted" },
+  async ({ event }) => {
+    await prisma.user.delete({
+      where: { id: event.data.id },
+    });
+  }
+);
+
+/* ---------------------------------------------------------
+                  WORKSPACE SYNC FUNCTIONS
+----------------------------------------------------------*/
 
 const syncWorkspaceCreation = inngest.createFunction(
   { id: "sync-workspace-from-clerk" },
   { event: "clerk/organization.created" },
   async ({ event }) => {
-    const { data } = event;
+    const w = event.data;
 
     await prisma.workspace.create({
       data: {
-        id: data.id,
-        name: data.name,
-        slug: data.slug,
-        ownerId: data.created_by,
-        image_url: data.image_url,
+        id: w.id,
+        name: w.name,
+        slug: w.slug,
+        ownerId: w.created_by,
+        image_url: w.image_url,
       },
     });
-    // Add creator as admin member
 
     await prisma.workspaceMember.create({
       data: {
-        userId: data.created_by,
-        workspaceId: data.id,
+        userId: w.created_by,
+        workspaceId: w.id,
         role: "ADMIN",
       },
     });
   }
 );
 
-//inngest func to update workspace  data in databse
-
 const syncWorkSpaceUpdation = inngest.createFunction(
   { id: "update-workspace-from-clerk" },
   { event: "clerk/organization.updated" },
-
   async ({ event }) => {
-    const { data } = event;
+    const w = event.data;
 
     await prisma.workspace.update({
-      where: {
-        id: data.id,
-      },
+      where: { id: w.id },
       data: {
-        name: data.name,
-        slug: data.slug,
-
-        image_url: data.image_url,
+        name: w.name,
+        slug: w.slug,
+        image_url: w.image_url,
       },
     });
   }
 );
-
-//inngest func to delete  workspace from  databse
 
 const syncWorkspaceDeletion = inngest.createFunction(
   { id: "delete-workspace-with-clerk" },
   { event: "clerk/organization.deleted" },
-
   async ({ event }) => {
-    const { data } = event;
-
     await prisma.workspace.delete({
-      where: { id: data.id },
+      where: { id: event.data.id },
     });
   }
 );
 
-//inngest func to save  workspace member data to a databse
+/* ---------------------------------------------------------
+             WORKSPACE MEMBER ADD (CORRECT EVENT)
+----------------------------------------------------------*/
 
 const syncWorkspaceMemberCreation = inngest.createFunction(
-  { id: "sync-workspace-with-clerk" },
-  { event: "clerk/organizationMembership.created" },
-
+  { id: "sync-workspace-member-from-clerk" },
+  { event: "clerk/organization.membership.created" },
   async ({ event }) => {
-    const membership = event.data;
+    const m = event.data;
 
-    const userId = membership.public_user_data.user_id;
-    const workspaceId = membership.organization.id;
-    const role = membership.role?.toUpperCase() || "MEMBER";
+    const userId = m.public_user_data.user_id;
+    const workspaceId = m.organization.id;
+    const role = m.role?.toUpperCase() || "MEMBER";
 
-    // Save in your DB
+    let user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          id: userId,
+          email: m.public_user_data.email_address,
+          name:
+            m.public_user_data.first_name + " " + m.public_user_data.last_name,
+          image: m.public_user_data.image_url,
+        },
+      });
+    }
+
     await prisma.workspaceMember.create({
       data: {
         userId,
@@ -154,7 +149,9 @@ const syncWorkspaceMemberCreation = inngest.createFunction(
   }
 );
 
-//inngest func to  send email on task creation
+/* ---------------------------------------------------------
+             TASK EMAIL TEMPLATE (ASSIGNMENT)
+----------------------------------------------------------*/
 
 const taskAssignmentTemplate = ({
   assigneeName,
@@ -170,8 +167,8 @@ const taskAssignmentTemplate = ({
     <meta charset="UTF-8" />
     <title>Task Assigned</title>
   </head>
-  <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 30px;">
-    <div style="max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+  <body style="font-family: Arial; background-color:#f4f4f4; padding:30px;">
+    <div style="max-width:600px; margin:auto; background:white; padding:25px; border-radius:10px;">
       
       <h2 style="color:#2563eb;">New Task Assigned</h2>
 
@@ -179,16 +176,16 @@ const taskAssignmentTemplate = ({
 
       <p>You have been assigned a new task in <b>${projectName}</b>.</p>
 
-      <div style="background: #f0f9ff; padding: 15px; border-left: 4px solid #3b82f6; margin: 15px 0; border-radius: 6px;">
-        <p style="margin: 0;"><strong>Task:</strong> ${taskTitle}</p>
-        <p style="margin: 0;"><strong>Due Date:</strong> ${dueDate}</p>
+      <div style="background:#f0f9ff; padding:15px; border-left:4px solid #3b82f6; margin:15px 0;">
+        <p><strong>Task:</strong> ${taskTitle}</p>
+        <p><strong>Due Date:</strong> ${dueDate}</p>
       </div>
 
-      <a href="${link}" style="display:inline-block; padding: 12px 20px; background:#2563eb; color:white; text-decoration:none; border-radius:6px; font-weight:bold;">
+      <a href="${link}" style="padding:12px 20px; background:#2563eb; color:white; border-radius:6px; text-decoration:none;">
         View Task
       </a>
 
-      <p style="margin-top: 30px; color: #555;">
+      <p style="margin-top:30px; color:#555;">
         Thanks,<br />
         <b>Project Management System</b>
       </p>
@@ -199,7 +196,10 @@ const taskAssignmentTemplate = ({
   `;
 };
 
-//task reminder template
+/* ---------------------------------------------------------
+             TASK REMINDER TEMPLATE
+----------------------------------------------------------*/
+
 const taskReminderTemplate = ({
   assigneeName,
   taskTitle,
@@ -210,24 +210,24 @@ const taskReminderTemplate = ({
   return `
   <!DOCTYPE html>
   <html>
-  <body style="font-family: Arial; background:#f4f4f4; padding: 30px;">
-    <div style="max-width: 600px; margin:auto; background:white; padding:25px; border-radius:10px;">
+  <body style="font-family: Arial; background:#f4f4f4; padding:30px;">
+    <div style="max-width:600px; margin:auto; background:white; padding:25px; border-radius:10px;">
       <h2 style="color:#dc2626;">Task Reminder</h2>
 
       <p>Hi <strong>${assigneeName}</strong>,</p>
 
       <p>This is a reminder that the task assigned to you in <b>${projectName}</b> is still <b>not completed</b>.</p>
 
-      <div style="background: #fff7ed; padding: 15px; border-left: 4px solid #f97316; margin: 15px 0; border-radius: 6px;">
-        <p style="margin: 0;"><strong>Task:</strong> ${taskTitle}</p>
-        <p style="margin: 0;"><strong>Due Date:</strong> ${dueDate}</p>
+      <div style="background:#fff7ed; padding:15px; border-left:4px solid #f97316; margin:15px 0;">
+        <p><strong>Task:</strong> ${taskTitle}</p>
+        <p><strong>Due Date:</strong> ${dueDate}</p>
       </div>
 
-      <a href="${link}" style="padding: 12px 20px; background:#dc2626; color:white; border-radius:6px; text-decoration:none;">
+      <a href="${link}" style="padding:12px 20px; background:#dc2626; color:white; border-radius:6px; text-decoration:none;">
         Complete Task
       </a>
 
-      <p style="margin-top: 30px; color: #555;">
+      <p style="margin-top:30px; color:#555;">
         Thanks,<br/>
         <b>Project Management System</b>
       </p>
@@ -237,7 +237,9 @@ const taskReminderTemplate = ({
   `;
 };
 
-// MAIN INNGEST FUNCTION
+/* ---------------------------------------------------------
+             TASK ASSIGNMENT + REMINDER INNGEST
+----------------------------------------------------------*/
 
 const sendTaskAssignmentEmail = inngest.createFunction(
   { id: "send-task-assignment-mail" },
@@ -255,7 +257,6 @@ const sendTaskAssignmentEmail = inngest.createFunction(
     if (!task) return;
 
     // Send Assignment Email
-
     await sendEmail({
       to: task.assignee.email,
       subject: `New Task Assignment in ${task.project.name}`,
@@ -268,44 +269,39 @@ const sendTaskAssignmentEmail = inngest.createFunction(
       }),
     });
 
-    // Wait till Due Date for Reminder
-
+    // Wait until Due Date for Reminder
     const dueDate = new Date(task.due_date);
 
-    // Check: future date hi ho
     if (dueDate > new Date()) {
       await step.sleepUntil("wait-until-task-due", dueDate);
 
-      //  Check task completion
-
-      await step.run("check-task-completion", async () => {
-        const updatedTask = await prisma.task.findUnique({
-          where: { id: taskId },
-          include: { assignee: true, project: true },
-        });
-
-        if (!updatedTask) return;
-
-        // If NOT completed → send Reminder Email
-        if (updatedTask.status !== "DONE") {
-          await sendEmail({
-            to: updatedTask.assignee.email,
-            subject: `Reminder: Task Pending in ${updatedTask.project.name}`,
-            html: taskReminderTemplate({
-              assigneeName: updatedTask.assignee.name,
-              taskTitle: updatedTask.title,
-              dueDate: new Date(updatedTask.due_date).toLocaleDateString(),
-              projectName: updatedTask.project.name,
-              link: origin,
-            }),
-          });
-        }
+      // Re-check task completion
+      const updatedTask = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: { assignee: true, project: true },
       });
+
+      if (updatedTask && updatedTask.status !== "DONE") {
+        await sendEmail({
+          to: updatedTask.assignee.email,
+          subject: `Reminder: Task Pending in ${updatedTask.project.name}`,
+          html: taskReminderTemplate({
+            assigneeName: updatedTask.assignee.name,
+            taskTitle: updatedTask.title,
+            dueDate: new Date(updatedTask.due_date).toLocaleDateString(),
+            projectName: updatedTask.project.name,
+            link: origin,
+          }),
+        });
+      }
     }
   }
 );
 
-// Create an empty array where we'll export future Inngest functions
+/* ---------------------------------------------------------
+                     EXPORT ALL FUNCTIONS
+----------------------------------------------------------*/
+
 export const functions = [
   syncUserCreation,
   syncUserDeletion,

@@ -12,6 +12,7 @@ export const getUserWorkSpaces = async (req, res) => {
         },
       },
       include: {
+        owner: true, // ⭐ IMPORTANT: Workspace owner added
         members: {
           include: { user: true },
         },
@@ -24,7 +25,7 @@ export const getUserWorkSpaces = async (req, res) => {
               },
             },
             members: { include: { user: true } },
-            owner: true, // ✅ moved inside include
+            owner: true,
           },
         },
       },

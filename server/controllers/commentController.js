@@ -3,7 +3,7 @@ import prisma from "../configs/prisma.js";
 // Add Comment
 export const addComment = async (req, res) => {
   try {
-    const { userId } = await req.auth();
+    const { userId } = await req.auth;
     const { content, taskId } = req.body;
 
     // Check if task exists
