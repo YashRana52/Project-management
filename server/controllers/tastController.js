@@ -51,6 +51,7 @@ export const createTask = async (req, res) => {
         priority,
         assigneeId,
         status,
+        type,
         due_date: new Date(due_date),
       },
     });
@@ -61,8 +62,10 @@ export const createTask = async (req, res) => {
     });
     await inngest.send({
       name: "app/task.assigned",
-      taskId: task.id,
-      origin,
+      data: {
+        taskId: task.id,
+        origin,
+      },
     });
 
     res.json({ task: taskWithAssignee, message: "Task created successfully" });
