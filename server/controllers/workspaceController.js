@@ -12,7 +12,7 @@ export const getUserWorkSpaces = async (req, res) => {
         },
       },
       include: {
-        owner: true, // ⭐ IMPORTANT: Workspace owner added
+        owner: true,
         members: {
           include: { user: true },
         },
@@ -44,57 +44,52 @@ export const addMember = async (req, res) => {
     const { userId } = await req.auth();
     const { email, role, workspaceId, message } = req.body;
 
-    //check if user already exist
-
+    // check if user exists
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (!workspaceId || !role) {
+    if (!workspaceId || !role)
       return res.status(400).json({ message: "missing required parameter" });
-    }
 
-    if (!["ADMIN", "MEMBER"].includes(role)) {
+    if (!["ADMIN", "MEMBER"].includes(role))
       return res.status(400).json({ message: "invalid role" });
-    }
 
-    //fetch workspace
-
+    // fetch workspace
     const workSpace = await prisma.workspace.findUnique({
       where: { id: workspaceId },
       include: { members: true },
     });
-
-    if (!workSpace) {
+    if (!workSpace)
       return res.status(404).json({ message: "WorkSpace not found" });
-    }
 
-    //check creater has admin role
-
-    if (
-      !workSpace.members.find(
-        (member) => member.userId === userId && member.role === "ADMIN"
-      )
-    ) {
+    // check if current user is admin
+    const isAdmin = workSpace.members.some(
+      (member) => member.userId === userId && member.role === "ADMIN"
+    );
+    if (!isAdmin)
       return res
-        .status(404)
-        .json({ message: "You do not have admin previleges" });
-    }
+        .status(403)
+        .json({ message: "You do not have admin privileges" });
 
-    // check if user is already member
+    // check if user is already a member
     const existingMember = workSpace.members.find(
       (member) => member.userId === user.id
     );
+    if (existingMember)
+      return res.status(400).json({ message: "User already a member" });
 
-    if (existingMember) {
-      return res.status(401).json({ message: "user already a member" });
-    }
+    // add member with proper relation
     const member = await prisma.workspaceMember.create({
-      data: { userId: user.id, workspaceId, role, message },
+      data: {
+        user: { connect: { id: user.id } },
+        workspace: { connect: { id: workspaceId } },
+        role,
+        message,
+      },
+      include: { user: true, workspace: true },
     });
 
-    res.json({ member, message: "member added successfully" });
+    res.json({ member, message: "Member added successfully" });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: error.code || error.message });

@@ -248,7 +248,6 @@ const sendTaskAssignmentEmail = inngest.createFunction(
   async ({ event, step }) => {
     const { taskId, origin } = event.data;
 
-    // Fetch task + user + project
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       include: { assignee: true, project: true },
@@ -256,7 +255,6 @@ const sendTaskAssignmentEmail = inngest.createFunction(
 
     if (!task) return;
 
-    // Send Assignment Email
     await sendEmail({
       to: task.assignee.email,
       subject: `New Task Assignment in ${task.project.name}`,
@@ -269,13 +267,11 @@ const sendTaskAssignmentEmail = inngest.createFunction(
       }),
     });
 
-    // Wait until Due Date for Reminder
     const dueDate = new Date(task.due_date);
 
     if (dueDate > new Date()) {
       await step.sleepUntil("wait-until-task-due", dueDate);
 
-      // Re-check task completion
       const updatedTask = await prisma.task.findUnique({
         where: { id: taskId },
         include: { assignee: true, project: true },
